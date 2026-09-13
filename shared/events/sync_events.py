@@ -17,6 +17,7 @@ class SyncEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     event_type: SyncEventType
     channel_id: Optional[str] = None
+    booking_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: Dict[str, Any]
 
