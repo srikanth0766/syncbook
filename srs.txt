@@ -1,0 +1,1041 @@
+Syncbook 
+
+Problem statement
+Syncbook is a cloud-based Central Reservation System (CRS) used by hotels to manage room inventory, pricing, availability, and reservations across multiple booking channels such as hotel websites, online travel agencies, travel agents, and call centers. It acts as a central hub that keeps booking information synchronized between these systems and helps hotels distribute their rooms efficiently.
+
+Okay so I cant make multiple websites like Agoda, oho, bookingdotcom etc.  so we create one generic website and we make multiple instances of that website like in docker. each of these instances should have its own local database and state for each instance.
+
+Functional requirements
+* Manage multiple hotels and their room inventory.
+* Run multiple instances of the same booking website to simulate different booking channels (Booking.com, Agoda, OYO, etc.).
+* Allow users to view available rooms and make bookings, update and delete from any booking channel.
+* If one user makes a booking in one channel he can only delete in that channel.
+* Maintain a central inventory of room availability.
+* Update the central inventory whenever a booking is made from any channel.
+* Synchronize updated room availability across all booking channel instances.
+* Handle a booking channel going offline without affecting the other channels.
+* Synchronize an offline channel with the latest data when it comes back online.
+* Store and manage booking details centrally.
+* Support simple data transformation for different external systems/formats (such as PMS or CRM).
+
+Non functional requirements
+* Availability – The system should continue functioning even if one booking channel goes offline.
+* Reliability – Bookings and inventory updates should not be lost.
+* Data Consistency – Room availability should eventually remain consistent across all booking channels.
+* Fault Tolerance – Failure of one channel should not affect other channels or the central platform.
+* Scalability – The system should support adding more hotels and booking channel instances easily.
+* Performance – Booking and inventory updates should be processed with minimal delay.
+* Recoverability – Offline channels should receive missed updates when they come back online.
+* Maintainability – New booking channels or external integrations should be easy to add.
+* Usability – The booking website and management platform should have a simple and understandable interface.
+* Security – Basic authentication and validation should protect booking and hotel data.
+
+Success criteria
+* A user can successfully make a booking from any booking channel.
+* The central inventory is updated correctly after every booking.
+* All active booking channels receive the updated inventory.
+* The system prevents overbooking.
+* If one channel goes offline, other channels continue functioning.
+* When the offline channel comes back online, it receives the latest inventory data.
+* Booking data is stored correctly in the central system.
+* The complete system can be run and demonstrated using Docker containers.
+User stories
+* As a customer, I want to view available hotels and rooms on a booking channel so that I can choose a room.
+* As a customer, I want to make a booking through any booking channel so that I can reserve a room, or even cancel a reservation.
+* As the central platform, I want to maintain a central record of bookings and room inventory so that there is a single source of truth.
+* As the central platform, I want to update the central inventory when a booking is made from any channel.
+* As the central platform, I want to synchronize inventory updates across all active booking channels so that they display the latest room availability.
+* As the central platform, I want to handle an offline booking channel and synchronize its data when it comes back online so that temporary failures do not cause permanent data inconsistencies.
+* As the central platform, I want to transform booking data into different formats when communicating with external systems so that different systems can be integrated later.
+High level design
+                              CUSTOMERS
+                                  │
+                                  ▼
+
+        ┌───────────────────────────────────────────────────┐
+        │              BOOKING CHANNELS                     │
+        │                                                   │
+        │  ┌──────────────┐   ┌──────────────┐   ┌─────────┐│
+        │  │  Channel A   │   │  Channel B   │   │Channel C││
+        │  │ Booking Site │   │ Booking Site │   │Booking  ││
+        │  │     + DB     │   │     + DB     │   │ + DB    ││
+        |  └──────┬───────┘   └──────┬───────┘   └────┬────┘│
+        └──────────┼──────────────────┼───────────────┼────-┘
+                   │                  │                │
+                   └──────────────────┼────────────────┘
+                                      │
+                                      ▼
+                               ┌─────────────┐
+                               │  RABBITMQ   │
+                               │ Message Queue│
+                               └──────┬──────┘
+                                      │
+                         ┌────────────┴────────────┐
+                         ▼                         ▼
+
+                ┌─────────────────┐       ┌─────────────────┐
+                │    SYNCBOOK     │       │    SYNCBOOK     │
+                │   INSTANCE 1    │       │   INSTANCE 2    │
+                │                 │       │                 │
+                │ Booking Handler │       │ Booking Handler │
+                │ Inventory Sync  │       │ Inventory Sync  │
+                │ Channel Manager │       │ Channel Manager │
+                └────────┬────────┘       └────────┬────────┘
+                         └────────────┬────────────┘
+                                      │
+                                      ▼
+                              ┌──────────────┐
+                              │ SYNCBOOK DB  │
+                              │              │
+                              │ Bookings     │
+                              │ Inventory    │
+                              │ Channels     │
+                              └──────┬───────┘
+                                     │
+                              API / RabbitMQ
+                                     │
+                                     ▼
+
+                          ┌───────────────────┐
+                          │   HOTEL / PMS     │
+                          │      SERVICE      │ 
+                          └─────────┬─────────┘
+                                    │
+                                    ▼
+                            ┌──────────────┐
+                            │   HOTEL DB   │
+                            │              │
+                            │ Rooms        │ source of truth holder
+                            │ Inventory    │
+                            │ Reservations │
+                            └──────────────┘
+
+
+              ┌────────────────────────────────────┐
+              │   COMMON CHANNEL / ADAPTER LAYER   │
+              │                                    │
+              │  Channel Interface                 │
+              │       │                            │
+              │   ┌───┼────┐                       │
+              │   A   B    C                       │
+              │                                    │
+              │ Makes new channels easy to add     │
+              └────────────────────────────────────┘
+
+
+              ┌────────────────────────────────────┐
+              │          SECURITY LAYER            │
+              │                                    │
+              │ Authentication                     │
+              │ Authorization                      │
+              │ Input Validation                   │
+              └────────────────────────────────────┘
+
+Main booking flow
+Customer → Booking Channel → Authentication & Validation → RabbitMQ
+→ Central Platform Instance → Check Inventory → Store Booking
+→ Update Inventory → PostgreSQL → INVENTORY_UPDATED → RabbitMQ
+→ All Active Booking Channels
+Offline channel recovery
+Channel B Offline → Other Channels Continue → Bookings Update Central Database
+→ Channel B Comes Online → Fetch Latest State from Central Platform
+→ Channel B Synchronized
+Techstack 
+Frontend        → React + TypeScript
+Backend         → Python + FastAPI
+Database        → PostgreSQL
+Message Queue   → RabbitMQ
+Containers      → Docker + Docker Compose
+Security        → JWT + bcrypt + Pydantic
+Version Control → Git + GitHub
+Future AI       → Python + Pandas + scikit-learn/PyTorch
+Low level design
+Database Design
+Hotels database :-
+HOTELS
+--------------------------------
+hotel_id        PK
+name
+location
+created_at
+
+ROOM_TYPES
+--------------------------------
+room_type_id    PK
+hotel_id        FK → HOTELS
+name
+total_rooms
+created_at
+
+BOOKINGS
+--------------------------------
+booking_id       PK
+hotel_id         FK → HOTELS
+room_type_id     FK → ROOM_TYPES
+
+customer_name
+customer_email
+
+check_in_date
+check_out_date
+
+status
+
+created_at
+updated_at
+
+Syncbook database:-
+HOTELS
+------------------------
+hotel_id        PK
+name
+location
+updated_at
+
+ROOM_TYPES
+------------------------
+room_type_id    PK
+hotel_id        FK → HOTELS
+name
+total_rooms
+updated_at
+
+BOOKINGS
+------------------------
+booking_id
+hotel_id
+room_type_id
+channel_id
+
+customer_name
+customer_email
+
+check_in_date
+check_out_date
+
+status
+updated_at
+
+CHANNELS
+------------------------
+channel_id      PK
+name
+status
+updated_at
+
+Booking channel database design:-
+HOTELS
+------------------------
+hotel_id        PK
+name
+location
+updated_at
+
+ROOM_TYPES
+------------------------
+room_type_id    PK
+hotel_id        FK → HOTELS
+name
+total_rooms
+updated_at
+
+BOOKINGS
+------------------------
+booking_id       PK
+hotel_id         FK → HOTELS
+room_type_id     FK → ROOM_TYPES
+
+customer_name
+customer_email
+
+check_in_date
+check_out_date
+
+status
+
+created_at
+updated_at
+Backend Module Design
+Booking Module:-
+Create Booking
+Update Booking
+Cancel Booking
+Get Booking
+Hotel Module:-
+Get Hotels
+Get Room Types
+Check Availability
+Synchronisation module:-
+Receive Hotel Updates
+Update SyncBook DB
+Publish Updates
+Synchronize Channels
+Handle Resynchronization
+Channel module:-
+Register Channel
+Get Channel Status
+Update Channel Status
+Recover Channel
+Message queue module:-
+Publish Message
+Consume Message
+Handle Failed Messages
+Authentication module:-
+Register User
+Login User
+Generate JWT
+Validate JWT
+API Design
+BOOKING CHANNEL
+│
+├── HOTELS
+│   │
+│   ├── GET /hotels
+│   ├── GET /hotels/{hotel_id}
+│   └── GET /hotels/{hotel_id}/room-types
+│
+├── AVAILABILITY
+│   │
+│   └── GET /availability
+│       ├── hotel_id
+│       ├── room_type_id
+│       ├── check_in
+│       └── check_out
+│
+└── BOOKINGS
+    │
+    ├── POST /bookings
+    ├── GET /bookings/{booking_id}
+    ├── PUT /bookings/{booking_id}
+    └── DELETE /bookings/{booking_id}
+
+
+SYNCBOOK
+│
+├── SYNCHRONIZATION
+│   │
+│   ├── GET /sync/hotels
+│   ├── GET /sync/room-types
+│   └── GET /sync/bookings
+│
+└── CHANNEL RECOVERY
+    │
+    └── POST /channels/{channel_id}/recover
+
+
+HOTEL / PMS
+│
+├── HOTELS
+│   │
+│   ├── GET /hotels
+│   ├── GET /hotels/{hotel_id}
+│   └── GET /hotels/{hotel_id}/room-types
+│
+├── AVAILABILITY
+│   │
+│   └── GET /availability
+│
+└── BOOKINGS
+    │
+    ├── POST /bookings
+    ├── GET /bookings/{booking_id}
+    ├── PUT /bookings/{booking_id}
+    └── DELETE /bookings/{booking_id}
+
+BOOKING CHANNEL → SYNCBOOK
+
+├── BOOKING_CREATED
+├── BOOKING_UPDATED
+└── BOOKING_CANCELLED
+
+
+SYNCBOOK → BOOKING CHANNELS
+
+├── HOTEL_DATA_UPDATED
+├── BOOKING_CONFIRMED
+├── BOOKING_UPDATED
+└── BOOKING_CANCELLED
+Message Queue Design
+MESSAGE QUEUE ARCHITECTURE
+==========================
+
+RabbitMQ is used as the asynchronous communication layer between
+Booking Channels and SyncBook, and for distributing synchronization
+updates to all Booking Channels.
+
+
+RABBITMQ
+│
+├── BOOKING REQUEST QUEUE
+│   │
+│   ├── BOOKING_CREATE_REQUEST
+│   ├── BOOKING_UPDATE_REQUEST
+│   └── BOOKING_CANCEL_REQUEST
+│
+│   Producer:
+│   └── Booking Channels
+│
+│   Consumer:
+│   └── SyncBook
+│
+├── SYNC EVENTS EXCHANGE
+│   │
+│   Events:
+│   ├── BOOKING_CONFIRMED
+│   ├── BOOKING_UPDATED
+│   ├── BOOKING_CANCELLED
+│   └── HOTEL_DATA_UPDATED
+│   │
+│   Producer:
+│   └── SyncBook
+│   │
+│   Channel Queues:
+│   ├── channel_a_queue → Channel A
+│   ├── channel_b_queue → Channel B
+│   └── channel_c_queue → Channel C
+│
+└── DEAD LETTER QUEUES
+    │
+    ├── booking_request_dlq
+    ├── channel_a_dlq
+    ├── channel_b_dlq
+    └── channel_c_dlq
+
+Booking Channel Design
+BOOKING CHANNEL
+│
+├── FRONTEND
+│   │
+│   ├── View Hotels
+│   ├── View Room Types
+│   ├── Check Availability
+│   ├── Create Booking
+│   ├── View Booking
+│   ├── Update Booking
+│   └── Cancel Booking
+│
+├── CHANNEL BACKEND
+│   │
+│   ├── Hotel Service
+│   │   ├── Get Hotels
+│   │   ├── Get Room Types
+│   │   └── Check Availability
+│   │
+│   ├── Booking Service
+│   │   ├── Create Booking Request
+│   │   ├── Get Booking
+│   │   ├── Update Booking Request
+│   │   └── Cancel Booking Request
+│   │
+│   └── Message Service
+│       ├── Publish Booking Requests
+│       ├── Consume Sync Events
+│       └── Handle Recovery
+│
+├── CHANNEL DATABASE
+│   │
+│   ├── Hotels
+│   ├── Room Types
+│   └── Bookings
+│
+└── RABBITMQ
+    │
+    ├── Publish → Booking Request Queue
+    └── Consume ← Channel-Specific Queue
+Booking Processing Flow
+CUSTOMER
+    │
+    ▼
+BOOKING CHANNEL
+    │
+    ├── Check Availability
+    │
+    ▼
+Create Booking
+    │
+    ▼
+CHANNEL DATABASE
+Status = PENDING
+    │
+    ▼
+RABBITMQ
+booking_request_queue
+    │
+    ▼
+SYNCBOOK
+    │
+    ├── Validate Request
+    │
+    ▼
+HOTEL/PMS API
+    │
+    ├── Check Availability
+    ├── Create Official Booking
+    │
+    ▼
+HOTEL/PMS DATABASE
+SOURCE OF TRUTH
+    │
+    ├───────────────┐
+    │ SUCCESS       │ FAILURE
+    ▼               ▼
+CONFIRMED       REJECTED
+    │               │
+    ▼               ▼
+SYNCBOOK       SYNCBOOK
+    │               │
+    └───────┬───────┘
+            ▼
+       RABBITMQ
+    sync_events_exchange
+            │
+            ▼
+    CHANNEL-SPECIFIC QUEUES
+            │
+            ▼
+     BOOKING CHANNELS
+            │
+            ▼
+     CHANNEL DATABASES
+Synchronization Design
+SYNCHRONIZATION DESIGN
+======================
+
+SOURCE OF TRUTH
+
+Hotel/PMS Database
+        │
+        ▼
+     SyncBook
+        │
+        ▼
+SyncBook Database
+        │
+        ▼
+RabbitMQ Sync Events Exchange
+        │
+        ├───────────────┬───────────────┐
+        ▼               ▼               ▼
+   Channel A Queue  Channel B Queue  Channel C Queue
+        │               │               │
+        ▼               ▼               ▼
+    Channel A       Channel B       Channel C
+        │               │               │
+        ▼               ▼               ▼
+      DB A            DB B            DB C
+
+
+SYNCHRONIZATION EVENTS
+----------------------
+
+- BOOKING_CONFIRMED
+- BOOKING_REJECTED
+- BOOKING_UPDATED
+- BOOKING_CANCELLED
+- HOTEL_DATA_UPDATED
+
+
+NORMAL SYNCHRONIZATION FLOW
+---------------------------
+
+Hotel/PMS Data Changes
+        ↓
+SyncBook
+        ↓
+Update SyncBook DB
+        ↓
+Publish Sync Event
+        ↓
+RabbitMQ Exchange
+        ↓
+Channel-Specific Queues
+        ↓
+Channels Update Local Databases
+
+
+OFFLINE CHANNEL RECOVERY
+------------------------
+
+Channel Goes Offline
+        ↓
+Messages Remain in Channel Queue
+        ↓
+Channel Comes Online
+        ↓
+Consume Pending Messages
+        ↓
+Update Local Database
+
+
+FULL RESYNCHRONIZATION
+----------------------
+
+If the channel cannot recover using pending messages:
+
+Channel
+        ↓
+POST /channels/{channel_id}/recover
+        ↓
+SyncBook
+        ↓
+Send Latest Hotel, Room Type and Booking Data
+        ↓
+Channel Rebuilds Local Database
+        ↓
+Resume Normal Synchronization
+
+
+SYNCHRONIZATION PRINCIPLE
+-------------------------
+
+Hotel/PMS DB
+= Source of Truth
+
+SyncBook DB
+= Central Synchronized Copy
+
+Channel DBs
+= Independent Local Synchronized Copies
+Failure & Recovery Design
+FAILURE AND RECOVERY DESIGN
+===========================
+
+
+1. BOOKING CHANNEL FAILURE
+--------------------------
+
+Channel Goes Offline
+        ↓
+Other Channels Continue Working
+        ↓
+Messages Continue to be Stored
+in the Channel-Specific Queue
+        ↓
+Channel Comes Back Online
+        ↓
+Consume Pending Messages
+        ↓
+Update Local Database
+
+If recovery fails:
+        ↓
+Request Full Resynchronization
+from SyncBook
+
+
+2. SYNCBOOK INSTANCE FAILURE
+----------------------------
+
+SyncBook Instance Fails
+        ↓
+Other SyncBook Instance
+Continues Processing
+        ↓
+RabbitMQ Retains Unprocessed Messages
+        ↓
+Failed Instance Restarts
+        ↓
+Reconnects to System
+
+
+3. RABBITMQ MESSAGE FAILURE
+---------------------------
+
+Message Processing Fails
+        ↓
+Retry Processing
+        ↓
+Still Fails
+        ↓
+Move to Dead Letter Queue
+        ↓
+Retry / Manual Recovery
+
+
+4. HOTEL/PMS FAILURE
+--------------------
+
+Hotel/PMS Becomes Unavailable
+        ↓
+SyncBook Cannot Complete Request
+        ↓
+Booking Request Remains
+Pending / Retried
+        ↓
+Hotel/PMS Recovers
+        ↓
+SyncBook Retries Request
+        ↓
+Booking Processing Continues
+
+
+5. DATABASE FAILURE
+-------------------
+
+Service Database Becomes Unavailable
+        ↓
+Service Cannot Process New Operations
+        ↓
+Other Independent Services
+Continue Working
+        ↓
+Database Recovers
+        ↓
+Service Resumes Processing
+
+
+6. DATA SYNCHRONIZATION FAILURE
+-------------------------------
+
+Channel Misses Updates
+        ↓
+Consume Pending Queue Messages
+
+If Messages Are Missing:
+        ↓
+Request Full Resynchronization
+        ↓
+SyncBook Sends Latest Data
+        ↓
+Channel Rebuilds Local State
+
+
+RECOVERY PRINCIPLES
+-------------------
+
+- Services operate independently
+- One channel failure does not affect others
+- Multiple SyncBook instances prevent single point of failure
+- RabbitMQ prevents temporary message loss
+- Dead Letter Queues store failed messages
+- Hotel/PMS remains the source of truth
+- Full resynchronization fixes inconsistent channel data
+Authentication & Security Design
+AUTHENTICATION AND SECURITY DESIGN
+==================================
+
+
+1. AUTHENTICATION
+-----------------
+
+Customer
+    ↓
+Login / Register
+    ↓
+Authentication Service
+    ↓
+Validate Credentials
+    ↓
+Generate JWT Token
+    ↓
+Return Token
+
+
+For protected requests:
+
+Customer
+    ↓
+Send JWT Token
+    ↓
+Booking Channel Backend
+    ↓
+Validate Token
+    ↓
+Allow / Deny Request
+
+
+2. AUTHORIZATION
+----------------
+
+CUSTOMER
+- Create booking
+- View own booking
+- Update own booking
+- Cancel own booking
+
+
+SYSTEM / SERVICE
+- Access internal APIs
+- Publish RabbitMQ messages
+- Consume RabbitMQ messages
+
+
+3. PASSWORD SECURITY
+--------------------
+
+User Password
+    ↓
+Hash using bcrypt
+    ↓
+Store Password Hash
+
+Passwords are never stored in plain text.
+
+
+4. API SECURITY
+---------------
+
+- JWT authentication for protected APIs
+- Input validation using Pydantic
+- Validate request data
+- Validate booking ownership
+- Reject invalid or unauthorized requests
+
+
+5. INTERNAL SERVICE SECURITY
+-----------------------------
+
+Booking Channel
+      ↓
+   SyncBook
+
+Hotel/PMS
+      ↓
+   SyncBook
+
+Internal communication is authenticated using
+service credentials / API keys.
+
+
+6. DATABASE SECURITY
+--------------------
+
+- Each service accesses only its own database
+- No service directly accesses another service's database
+- Database credentials are stored in environment variables
+- Sensitive data is not hardcoded
+
+
+7. MESSAGE QUEUE SECURITY
+-------------------------
+
+- RabbitMQ requires authentication
+- Each service uses separate credentials
+- Services only access required queues
+- Message data is validated before processing
+
+
+SECURITY PRINCIPLE
+------------------
+
+Customer
+    ↓
+JWT Authentication
+    ↓
+Booking Channel
+
+Services
+    ↓
+Service Authentication
+    ↓
+Internal APIs / RabbitMQ
+
+Each Component
+    ↓
+Accesses Only Its Own Database
+Folder architecture
+syncbook/
+│
+├── docker-compose.yml
+├── .env.example
+├── README.md
+│
+│
+├── shared/
+│   │
+│   ├── events/
+│   │   ├── booking_events.py
+│   │   └── sync_events.py
+│   │
+│   └── schemas/
+│       ├── booking.py
+│       ├── hotel.py
+│       └── room_type.py
+│
+│
+├── booking-channel/
+│   │
+│   ├── frontend/
+│   │   │
+│   │   ├── src/
+│   │   │   │
+│   │   │   ├── pages/
+│   │   │   │   ├── HotelsPage.tsx
+│   │   │   │   └── MyBookingsPage.tsx
+│   │   │   │
+│   │   │   ├── components/
+│   │   │   │   ├── HotelSelector.tsx
+│   │   │   │   ├── Availability.tsx
+│   │   │   │   ├── BookingForm.tsx
+│   │   │   │   └── BookingList.tsx
+│   │   │   │
+│   │   │   ├── services/
+│   │   │   │   └── api.ts
+│   │   │   │
+│   │   │   ├── App.tsx
+│   │   │   └── main.tsx
+│   │   │
+│   │   ├── package.json
+│   │   └── Dockerfile
+│   │
+│   │
+│   └── backend/
+│       │
+│       ├── app/
+│       │   │
+│       │   ├── main.py
+│       │   │
+│       │   ├── api/
+│       │   │   ├── hotels.py
+│       │   │   ├── availability.py
+│       │   │   └── bookings.py
+│       │   │
+│       │   ├── models/
+│       │   │   ├── hotel.py
+│       │   │   ├── room_type.py
+│       │   │   └── booking.py
+│       │   │
+│       │   ├── schemas/
+│       │   │   ├── hotel.py
+│       │   │   └── booking.py
+│       │   │
+│       │   ├── services/
+│       │   │   ├── hotel_service.py
+│       │   │   ├── availability_service.py
+│       │   │   └── booking_service.py
+│       │   │
+│       │   ├── messaging/
+│       │   │   ├── publisher.py
+│       │   │   ├── consumer.py
+│       │   │   └── rabbitmq.py
+│       │   │
+│       │   ├── recovery/
+│       │   │   └── recovery_service.py
+│       │   │
+│       │   ├── core/
+│       │   │   └── config.py
+│       │   │
+│       │   └── database/
+│       │       ├── connection.py
+│       │       └── init_db.py
+│       │
+│       ├── requirements.txt
+│       └── Dockerfile
+│
+│
+├── syncbook/
+│   │
+│   ├── app/
+│   │   │
+│   │   ├── main.py
+│   │   │
+│   │   ├── api/
+│   │   │   ├── sync.py
+│   │   │   └── channels.py
+│   │   │
+│   │   ├── models/
+│   │   │   ├── hotel.py
+│   │   │   ├── room_type.py
+│   │   │   ├── booking.py
+│   │   │   └── channel.py
+│   │   │
+│   │   ├── schemas/
+│   │   │   ├── hotel.py
+│   │   │   ├── booking.py
+│   │   │   └── channel.py
+│   │   │
+│   │   ├── services/
+│   │   │   ├── booking_handler.py
+│   │   │   ├── synchronization_service.py
+│   │   │   └── recovery_service.py
+│   │   │
+│   │   ├── integrations/
+│   │   │   ├── hotel_client.py
+│   │   │   └── transformer.py
+│   │   │
+│   │   ├── messaging/
+│   │   │   ├── booking_consumer.py
+│   │   │   ├── sync_publisher.py
+│   │   │   ├── rabbitmq.py
+│   │   │   └── dlq_handler.py
+│   │   │
+│   │   ├── core/
+│   │   │   └── config.py
+│   │   │
+│   │   └── database/
+│   │       ├── connection.py
+│   │       └── init_db.py
+│   │
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+│
+├── hotel-pms/
+│   │
+│   ├── app/
+│   │   │
+│   │   ├── main.py
+│   │   │
+│   │   ├── api/
+│   │   │   ├── hotels.py
+│   │   │   ├── availability.py
+│   │   │   └── bookings.py
+│   │   │
+│   │   ├── models/
+│   │   │   ├── hotel.py
+│   │   │   ├── room_type.py
+│   │   │   └── booking.py
+│   │   │
+│   │   ├── schemas/
+│   │   │   ├── hotel.py
+│   │   │   └── booking.py
+│   │   │
+│   │   ├── services/
+│   │   │   ├── hotel_service.py
+│   │   │   ├── availability_service.py
+│   │   │   └── booking_service.py
+│   │   │
+│   │   ├── core/
+│   │   │   └── config.py
+│   │   │
+│   │   └── database/
+│   │       ├── connection.py
+│   │       └── init_db.py
+│   │
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+│
+├── rabbitmq/
+│   │
+│   └── definitions.json
+│
+│
+├── database/
+│   │
+│   ├── hotel/
+│   │   └── init.sql
+│   │
+│   ├── syncbook/
+│   │   └── init.sql
+│   │
+│   ├── channel-a/
+│   │   └── init.sql
+│   │
+│   ├── channel-b/
+│   │   └── init.sql
+│   │
+│   └── channel-c/
+│       └── init.sql
+│
+│
+├── future-ai/
+│   │
+│   └── README.md
+│
+│
+└── tests/
+    │
+    ├── booking-channel/
+    ├── syncbook/
+    └── hotel-pms/
