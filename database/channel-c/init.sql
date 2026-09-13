@@ -1,0 +1,1 @@
+-- Channel C database initialization script

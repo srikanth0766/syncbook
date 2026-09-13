@@ -1,0 +1,261 @@
+version: '3.8'
+
+services:
+  # 1. Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  # 2. Hotel PMS Database & Service
+  hotel-db:
+    image: postgres:15-alpine
+    container_name: hotel-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hotel_db
+    ports:
+      - "5431:5432"
+    volumes:
+      - hotel_db_data:/var/lib/postgresql/data
+      - ./database/hotel/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hotel_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  hotel-pms:
+    build:
+      context: ./hotel-pms
+      dockerfile: Dockerfile
+    container_name: hotel-pms
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@hotel-db:5432/hotel_db
+    depends_on:
+      hotel-db:
+        condition: service_healthy
+    networks:
+      - syncbook-network
+
+  # 3. Syncbook Central Database & Services (Scaled Instances)
+  syncbook-db:
+    image: postgres:15-alpine
+    container_name: syncbook-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: syncbook_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - syncbook_db_data:/var/lib/postgresql/data
+      - ./database/syncbook/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d syncbook_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  syncbook-1:
+    build:
+      context: ./syncbook
+      dockerfile: Dockerfile
+    container_name: syncbook-1
+    ports:
+      - "8002:8000"
+    environment:
+      INSTANCE_ID: syncbook-1
+      DATABASE_URL: postgresql://postgres:postgres@syncbook-db:5432/syncbook_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      HOTEL_PMS_URL: http://hotel-pms:8000
+    depends_on:
+      syncbook-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      hotel-pms:
+        condition: service_started
+    networks:
+      - syncbook-network
+
+  syncbook-2:
+    build:
+      context: ./syncbook
+      dockerfile: Dockerfile
+    container_name: syncbook-2
+    ports:
+      - "8003:8000"
+    environment:
+      INSTANCE_ID: syncbook-2
+      DATABASE_URL: postgresql://postgres:postgres@syncbook-db:5432/syncbook_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      HOTEL_PMS_URL: http://hotel-pms:8000
+    depends_on:
+      syncbook-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      hotel-pms:
+        condition: service_started
+    networks:
+      - syncbook-network
+
+  # 4. Booking Channels (Channel A, B, C)
+  channel-a-db:
+    image: postgres:15-alpine
+    container_name: channel-a-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: channel_a_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - channel_a_db_data:/var/lib/postgresql/data
+      - ./database/channel-a/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d channel_a_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  channel-a:
+    build:
+      context: ./booking-channel/backend
+      dockerfile: Dockerfile
+    container_name: channel-a
+    ports:
+      - "8004:8000"
+    environment:
+      CHANNEL_ID: channel-a
+      CHANNEL_NAME: Channel A
+      QUEUE_NAME: channel_a_queue
+      DATABASE_URL: postgresql://postgres:postgres@channel-a-db:5432/channel_a_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      channel-a-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - syncbook-network
+
+  channel-b-db:
+    image: postgres:15-alpine
+    container_name: channel-b-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: channel_b_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - channel_b_db_data:/var/lib/postgresql/data
+      - ./database/channel-b/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d channel_b_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  channel-b:
+    build:
+      context: ./booking-channel/backend
+      dockerfile: Dockerfile
+    container_name: channel-b
+    ports:
+      - "8005:8000"
+    environment:
+      CHANNEL_ID: channel-b
+      CHANNEL_NAME: Channel B
+      QUEUE_NAME: channel_b_queue
+      DATABASE_URL: postgresql://postgres:postgres@channel-b-db:5432/channel_b_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      channel-b-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - syncbook-network
+
+  channel-c-db:
+    image: postgres:15-alpine
+    container_name: channel-c-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: channel_c_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - channel_c_db_data:/var/lib/postgresql/data
+      - ./database/channel-c/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d channel_c_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - syncbook-network
+
+  channel-c:
+    build:
+      context: ./booking-channel/backend
+      dockerfile: Dockerfile
+    container_name: channel-c
+    ports:
+      - "8006:8000"
+    environment:
+      CHANNEL_ID: channel-c
+      CHANNEL_NAME: Channel C
+      QUEUE_NAME: channel_c_queue
+      DATABASE_URL: postgresql://postgres:postgres@channel-c-db:5432/channel_c_db
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      channel-c-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - syncbook-network
+
+networks:
+  syncbook-network:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+  hotel_db_data:
+  syncbook_db_data:
+  channel_a_db_data:
+  channel_b_db_data:
+  channel_c_db_data:

@@ -1,0 +1,1 @@
+-- Channel A database initialization script
