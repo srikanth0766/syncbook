@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.booking import BookingModel
 from app.services.availability_service import check_availability
+from app.messaging.publisher import (
+    publish_booking_create_event,
+    publish_booking_update_event,
+    publish_booking_cancel_event,
+)
 from shared.schemas.booking import BookingCreate, BookingUpdate, BookingStatus
 
 
@@ -33,9 +38,14 @@ def create_booking_request(db: Session, booking_data: BookingCreate) -> BookingM
         status=BookingStatus.PENDING.value
     )
 
+    # 1. Local operation first
     db.add(booking)
     db.commit()
     db.refresh(booking)
+
+    # 2. Publish event to RabbitMQ
+    publish_booking_create_event(booking)
+
     return booking
 
 
@@ -82,8 +92,13 @@ def update_booking_request(db: Session, booking_id: str, booking_data: BookingUp
     else:
         booking.status = BookingStatus.UPDATED.value
 
+    # 1. Local operation first
     db.commit()
     db.refresh(booking)
+
+    # 2. Publish event to RabbitMQ
+    publish_booking_update_event(booking)
+
     return booking
 
 
@@ -93,6 +108,12 @@ def cancel_booking_request(db: Session, booking_id: str) -> Optional[BookingMode
         return None
 
     booking.status = BookingStatus.CANCELLED.value
+
+    # 1. Local operation first
     db.commit()
     db.refresh(booking)
+
+    # 2. Publish event to RabbitMQ
+    publish_booking_cancel_event(booking)
+
     return booking
