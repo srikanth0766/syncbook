@@ -5,7 +5,9 @@
       "name": "guest",
       "password_hash": "BM8ig88P88VbU1tE88L+8888888=",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": ["administrator"]
+      "tags": [
+        "administrator"
+      ]
     }
   ],
   "vhosts": [
@@ -22,7 +24,228 @@
       "read": ".*"
     }
   ],
-  "exchanges": [],
-  "queues": [],
-  "bindings": []
+  "exchanges": [
+    {
+      "name": "sync_events_exchange",
+      "vhost": "/",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "dead_letter_exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "booking_request_dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "booking_request_retry_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "booking_request_queue"
+      }
+    },
+    {
+      "name": "booking_request_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "booking_request_retry_rk"
+      }
+    },
+    {
+      "name": "channel_a_dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "channel_a_retry_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "channel_a_queue"
+      }
+    },
+    {
+      "name": "channel_a_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "channel_a_retry_rk"
+      }
+    },
+    {
+      "name": "channel_b_dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "channel_b_retry_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "channel_b_queue"
+      }
+    },
+    {
+      "name": "channel_b_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "channel_b_retry_rk"
+      }
+    },
+    {
+      "name": "channel_c_dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "channel_c_retry_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 5000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "channel_c_queue"
+      }
+    },
+    {
+      "name": "channel_c_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "channel_c_retry_rk"
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "sync_events_exchange",
+      "vhost": "/",
+      "destination": "channel_a_queue",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    },
+    {
+      "source": "sync_events_exchange",
+      "vhost": "/",
+      "destination": "channel_b_queue",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    },
+    {
+      "source": "sync_events_exchange",
+      "vhost": "/",
+      "destination": "channel_c_queue",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "booking_request_retry_queue",
+      "destination_type": "queue",
+      "routing_key": "booking_request_retry_rk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "booking_request_dlq",
+      "destination_type": "queue",
+      "routing_key": "booking_request_dlk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_a_retry_queue",
+      "destination_type": "queue",
+      "routing_key": "channel_a_retry_rk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_a_dlq",
+      "destination_type": "queue",
+      "routing_key": "channel_a_dlk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_b_retry_queue",
+      "destination_type": "queue",
+      "routing_key": "channel_b_retry_rk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_b_dlq",
+      "destination_type": "queue",
+      "routing_key": "channel_b_dlk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_c_retry_queue",
+      "destination_type": "queue",
+      "routing_key": "channel_c_retry_rk",
+      "arguments": {}
+    },
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "channel_c_dlq",
+      "destination_type": "queue",
+      "routing_key": "channel_c_dlk",
+      "arguments": {}
+    }
+  ]
 }
